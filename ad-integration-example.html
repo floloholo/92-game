@@ -1,0 +1,57 @@
+<!-- Example: How to add real ads to your game -->
+
+<!-- Google AdSense Example -->
+<!-- Replace the ad-placeholder divs in index.html with: -->
+
+<!-- Top Banner Ad (728x90) -->
+<div class="ad-container ad-top">
+    <ins class="adsbygoogle"
+         style="display:block"
+         data-ad-client="ca-pub-YOUR-PUBLISHER-ID"
+         data-ad-slot="YOUR-AD-SLOT-ID"
+         data-ad-format="horizontal"
+         data-full-width-responsive="false"></ins>
+    <script>
+         (adsbygoogle = window.adsbygoogle || []).push({});
+    </script>
+</div>
+
+<!-- Bottom Banner Ad (728x90) -->
+<div class="ad-container ad-bottom">
+    <ins class="adsbygoogle"
+         style="display:block"
+         data-ad-client="ca-pub-YOUR-PUBLISHER-ID"
+         data-ad-slot="YOUR-AD-SLOT-ID-2"
+         data-ad-format="horizontal"
+         data-full-width-responsive="false"></ins>
+    <script>
+         (adsbygoogle = window.adsbygoogle || []).push({});
+    </script>
+</div>
+
+<!-- Add this script in the <head> section -->
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-YOUR-PUBLISHER-ID"
+     crossorigin="anonymous"></script>
+
+<!-- Alternative: Media.net Example -->
+<div class="ad-container">
+    <div id="YOUR-MEDIA-NET-ID"></div>
+    <script async src="https://contextual.media.net/dmedianet.js?cid=YOUR-CID"></script>
+</div>
+
+<!-- Alternative: Carbon Ads (for developer audience) -->
+<div class="ad-container">
+    <script async type="text/javascript" 
+            src="//cdn.carbonads.com/carbon.js?serve=YOUR-ID&placement=YOUR-PLACEMENT" 
+            id="_carbonads_js"></script>
+</div>
+
+<!-- Tips for Ad Integration:
+1. Sign up for an ad network (Google AdSense is most common)
+2. Get approved (may take a few days)
+3. Create ad units in your ad dashboard
+4. Copy the provided code
+5. Replace the placeholder divs in index.html
+6. Test thoroughly before going live
+7. Monitor performance and optimize placement
+-->
