@@ -22,6 +22,7 @@ const GAME_CONFIG = {
     BASE_DISCUSSION_TIME: 120, // 2 minutes for 3 players
     ADDITIONAL_TIME_PER_PLAYER: 60, // 1 minute per extra player
     VOTING_TIME: 30,
+    EMERGENCY_TIME: 10, // Emergency voting time
     POINTS: {
         BOTH_CORRECT: 1,
         SINGLE_CORRECT: 3,
@@ -64,15 +65,19 @@ function createRoom(hostId, hostName) {
         gameState: {
             status: 'lobby', // lobby, playing, finished
             currentRound: 0,
-            phase: 'waiting', // waiting, discussion, voting, roundEnd, gameEnd
+            phase: 'waiting', // waiting, readyToStart, discussion, voting, emergency, roundEnd, gameEnd
             moneyHolder: null,
             eliminatedPlayers: [],
             votes: {},
             scores: {},
             discussionTime: GAME_CONFIG.BASE_DISCUSSION_TIME,
             votingTime: GAME_CONFIG.VOTING_TIME,
+            emergencyTime: GAME_CONFIG.EMERGENCY_TIME,
             lastEliminated: null,
-            previousScores: {}
+            previousScores: {},
+            nonVoters: [], // Players who didn't vote
+            votingResults: {}, // Detailed voting results
+            timerStarted: false
         }
     };
     
@@ -114,9 +119,12 @@ function removePlayerFromRoom(playerId) {
 function startNewRound(room) {
     const gameState = room.gameState;
     gameState.currentRound++;
-    gameState.phase = 'discussion';
+    gameState.phase = 'readyToStart'; // Wait for host to start timer
     gameState.votes = {};
     gameState.lastEliminated = null;
+    gameState.nonVoters = [];
+    gameState.votingResults = {};
+    gameState.timerStarted = false;
     
     // Calculate discussion time based on player count
     const activePlayers = room.players.filter(p => 
@@ -261,7 +269,14 @@ io.on('connection', (socket) => {
         // Start first round
         startNewRound(room);
         
-        io.to(roomCode).emit('gameStarted', room.gameState);
+        // Include additional data in gameState for client
+        const enrichedGameState = {
+            ...room.gameState,
+            players: room.players,
+            hostId: room.hostId
+        };
+        
+        io.to(roomCode).emit('gameStarted', enrichedGameState);
     });
     
     socket.on('vote', (data) => {
@@ -271,66 +286,185 @@ io.on('connection', (socket) => {
         
         if (!room || room.gameState.status !== 'playing') return;
         if (room.gameState.eliminatedPlayers.includes(socket.id)) return;
+        if (room.gameState.phase !== 'voting' && room.gameState.phase !== 'emergency') return;
         
-        room.gameState.votes[socket.id] = targetId;
-        
-        // Check if all active players have voted
-        const activePlayers = room.players.filter(p => 
-            !room.gameState.eliminatedPlayers.includes(p.id)
-        );
-        const votesCount = Object.keys(room.gameState.votes).length;
-        
-        if (room.gameState.currentRound === 1) {
-            // First round - elimination vote
-            if (votesCount === activePlayers.length) {
-                // Count votes
-                const voteCounts = {};
-                Object.values(room.gameState.votes).forEach(vote => {
-                    voteCounts[vote] = (voteCounts[vote] || 0) + 1;
-                });
-                
-                // Find player with most votes
-                let maxVotes = 0;
-                let eliminated = null;
-                Object.entries(voteCounts).forEach(([playerId, count]) => {
-                    if (count > maxVotes) {
-                        maxVotes = count;
-                        eliminated = playerId;
-                    }
-                });
-                
-                // Eliminate player
-                room.gameState.eliminatedPlayers.push(eliminated);
-                room.gameState.lastEliminated = eliminated;
-                room.gameState.votes = {};
-                room.gameState.phase = 'roundEnd';
-                
-                io.to(roomCode).emit('roundEnded', room.gameState);
-                
-                // Auto-start round 2 after a delay
-                setTimeout(() => {
-                    room.gameState.currentRound = 2;
-                    room.gameState.phase = 'discussion';
-                    io.to(roomCode).emit('gameStarted', room.gameState);
-                }, 5000);
-            }
+        // If targetId is null, remove vote
+        if (targetId === null) {
+            delete room.gameState.votes[socket.id];
         } else {
-            // Second round - money guess vote
-            const remainingPlayers = activePlayers.filter(p => 
-                !room.gameState.eliminatedPlayers.includes(p.id)
-            );
-            
-            if (votesCount === remainingPlayers.length) {
-                // Calculate scores
-                calculateScores(room);
-                room.gameState.phase = 'gameEnd';
-                
-                io.to(roomCode).emit('roundEnded', room.gameState);
-            }
+            room.gameState.votes[socket.id] = targetId;
         }
         
-        io.to(roomCode).emit('voteReceived', room.gameState);
+        io.to(roomCode).emit('voteUpdate', {
+            voterId: socket.id,
+            targetId: targetId
+        });
     });
+    
+    socket.on('startTimer', () => {
+        const roomCode = playerRooms.get(socket.id);
+        const room = getRoom(roomCode);
+        
+        if (!room || room.hostId !== socket.id) {
+            socket.emit('error', { message: 'Only host can start the timer' });
+            return;
+        }
+        
+        if (room.gameState.phase !== 'readyToStart') return;
+        
+        room.gameState.phase = 'discussion';
+        room.gameState.timerStarted = true;
+        
+        const enrichedGameState = {
+            ...room.gameState,
+            players: room.players,
+            hostId: room.hostId
+        };
+        
+        io.to(roomCode).emit('timerStarted', enrichedGameState);
+    });
+    
+    socket.on('phaseEnd', (data) => {
+        const { phase } = data;
+        const roomCode = playerRooms.get(socket.id);
+        const room = getRoom(roomCode);
+        
+        if (!room) return;
+        
+        if (phase === 'discussion') {
+            // Move to voting phase
+            room.gameState.phase = 'voting';
+            room.gameState.votes = {};
+            io.to(roomCode).emit('phaseChanged', { phase: 'voting', time: GAME_CONFIG.VOTING_TIME });
+        } else if (phase === 'voting') {
+            // Check who hasn't voted
+            const activePlayers = room.players.filter(p => 
+                !room.gameState.eliminatedPlayers.includes(p.id)
+            );
+            const nonVoters = activePlayers.filter(p => !room.gameState.votes[p.id]);
+            
+            if (nonVoters.length > 0) {
+                // Move to emergency phase
+                room.gameState.phase = 'emergency';
+                room.gameState.nonVoters = nonVoters.map(p => p.id);
+                io.to(roomCode).emit('phaseChanged', { 
+                    phase: 'emergency', 
+                    time: GAME_CONFIG.EMERGENCY_TIME,
+                    nonVoters: room.gameState.nonVoters
+                });
+            } else {
+                // Everyone voted, process results
+                processVotingResults(room);
+            }
+        } else if (phase === 'emergency') {
+            // Emergency time ended, handle non-voters
+            handleNonVoters(room);
+        }
+    });
+    
+    function processVotingResults(room) {
+        const gameState = room.gameState;
+        
+        // Store detailed voting results
+        gameState.votingResults = { ...gameState.votes };
+        
+        if (gameState.currentRound === 1) {
+            // First round - elimination vote
+            const voteCounts = {};
+            Object.values(gameState.votes).forEach(vote => {
+                voteCounts[vote] = (voteCounts[vote] || 0) + 1;
+            });
+            
+            // Find player with most votes (handle ties by random selection)
+            let maxVotes = 0;
+            let candidates = [];
+            Object.entries(voteCounts).forEach(([playerId, count]) => {
+                if (count > maxVotes) {
+                    maxVotes = count;
+                    candidates = [playerId];
+                } else if (count === maxVotes) {
+                    candidates.push(playerId);
+                }
+            });
+            
+            // Random selection from tied candidates
+            const eliminated = candidates[Math.floor(Math.random() * candidates.length)];
+            
+            // Eliminate player
+            gameState.eliminatedPlayers.push(eliminated);
+            gameState.lastEliminated = eliminated;
+            gameState.phase = 'roundEnd';
+            
+            io.to(room.code).emit('votingComplete', {
+                votingResults: gameState.votingResults,
+                eliminated: eliminated,
+                voteCounts: voteCounts
+            });
+            
+            // Auto-start round 2 after a delay
+            setTimeout(() => {
+                gameState.currentRound = 2;
+                gameState.votes = {};
+                gameState.votingResults = {};
+                gameState.phase = 'readyToStart';
+                
+                const enrichedGameState = {
+                    ...gameState,
+                    players: room.players,
+                    hostId: room.hostId
+                };
+                
+                io.to(room.code).emit('newRound', enrichedGameState);
+            }, 7000);
+        } else {
+            // Second round - money guess vote
+            calculateScores(room);
+            gameState.phase = 'gameEnd';
+            
+            io.to(room.code).emit('votingComplete', {
+                votingResults: gameState.votingResults,
+                moneyHolder: gameState.moneyHolder,
+                scores: gameState.scores
+            });
+        }
+    }
+    
+    function handleNonVoters(room) {
+        const gameState = room.gameState;
+        const activePlayers = room.players.filter(p => 
+            !gameState.eliminatedPlayers.includes(p.id)
+        );
+        const finalNonVoters = activePlayers.filter(p => !gameState.votes[p.id]);
+        
+        if (finalNonVoters.length === 0) {
+            // Everyone voted during emergency
+            processVotingResults(room);
+        } else if (finalNonVoters.length === activePlayers.length) {
+            // Nobody voted - restart game
+            gameState.phase = 'gameEnd';
+            io.to(room.code).emit('gameAborted', { reason: 'Nobody voted' });
+        } else if (finalNonVoters.length === activePlayers.length - 1) {
+            // Only one person voted - they win
+            const voter = activePlayers.find(p => gameState.votes[p.id]);
+            if (!gameState.scores[voter.id]) gameState.scores[voter.id] = 0;
+            gameState.scores[voter.id] += 3;
+            gameState.phase = 'gameEnd';
+            io.to(room.code).emit('gameAborted', { 
+                reason: 'Only one player voted',
+                winner: voter.id
+            });
+        } else {
+            // Multiple non-voters - eliminate them and end game
+            finalNonVoters.forEach(player => {
+                gameState.eliminatedPlayers.push(player.id);
+            });
+            gameState.phase = 'gameEnd';
+            io.to(room.code).emit('gameAborted', { 
+                reason: 'Multiple players did not vote',
+                eliminated: finalNonVoters.map(p => p.id)
+            });
+        }
+    }
     
     socket.on('nextRound', () => {
         const roomCode = playerRooms.get(socket.id);
@@ -343,7 +477,14 @@ io.on('connection', (socket) => {
         room.gameState.votes = {};
         
         startNewRound(room);
-        io.to(roomCode).emit('gameStarted', room.gameState);
+        
+        const enrichedGameState = {
+            ...room.gameState,
+            players: room.players,
+            hostId: room.hostId
+        };
+        
+        io.to(roomCode).emit('gameStarted', enrichedGameState);
     });
     
     socket.on('backToLobby', () => {

@@ -393,33 +393,125 @@ body {
     color: var(--primary-color);
 }
 
+/* Voting section improvements */
 .voting-buttons {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: 15px;
-    justify-content: center;
-    flex-wrap: wrap;
+    margin-top: 20px;
 }
 
-.vote-btn {
-    padding: 12px 24px;
+.player-vote-card {
+    padding: 20px;
     background-color: white;
-    border: 2px solid var(--primary-color);
-    color: var(--primary-color);
-    border-radius: 8px;
-    font-weight: 600;
+    border: 3px solid transparent;
+    border-radius: 12px;
+    text-align: center;
     cursor: pointer;
     transition: all 0.3s ease;
 }
 
-.vote-btn:hover {
-    background-color: var(--primary-color);
-    color: white;
+.player-vote-card:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow);
+    border-color: var(--primary-color);
 }
 
-.vote-btn.voted {
-    background-color: var(--success-color);
+.player-vote-card.selected {
+    background-color: var(--primary-color);
     color: white;
-    border-color: var(--success-color);
+    border-color: var(--primary-color);
+}
+
+.player-vote-card .player-avatar {
+    font-size: 36px;
+    margin-bottom: 8px;
+}
+
+.player-vote-card .player-name {
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.player-vote-card .player-status {
+    font-size: 12px;
+    opacity: 0.7;
+}
+
+/* Emergency voting */
+.emergency-warning {
+    background-color: var(--danger-color);
+    color: white;
+    padding: 15px;
+    border-radius: 8px;
+    text-align: center;
+    margin-bottom: 20px;
+    animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.7; }
+    100% { opacity: 1; }
+}
+
+/* Voting results display */
+.voting-display {
+    background-color: var(--light-bg);
+    padding: 20px;
+    border-radius: 10px;
+    margin: 20px 0;
+}
+
+.vote-item {
+    padding: 10px 15px;
+    background-color: white;
+    margin-bottom: 8px;
+    border-radius: 8px;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.elimination-text {
+    font-size: 20px;
+    color: var(--danger-color);
+    text-align: center;
+    margin: 20px 0;
+}
+
+.money-reveal {
+    font-size: 24px;
+    color: var(--success-color);
+    text-align: center;
+    margin: 20px 0;
+}
+
+.points-earned {
+    background-color: var(--light-bg);
+    padding: 20px;
+    border-radius: 10px;
+    margin: 20px 0;
+}
+
+.points-earned h4 {
+    margin-bottom: 10px;
+    color: var(--primary-color);
+}
+
+.abort-reason {
+    font-size: 18px;
+    color: var(--danger-color);
+    text-align: center;
+    margin: 20px 0;
+}
+
+.winner-text {
+    font-size: 22px;
+    color: var(--success-color);
+    text-align: center;
+    margin: 20px 0;
 }
 
 .results-section {
